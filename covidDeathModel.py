@@ -12,6 +12,12 @@ def attribValFromAge(age):
     if age < ageCutOff:
         return "under"
     return "over"
+    # if age < ageCutOffOne:
+    #     return 1
+    # elif age < ageCutOffTwo:
+    #     return 2
+    # else:
+    #     return 3
 
 def isUnknownAttribVal(attribVal):
     # if 97 <= attribVal <= 99: # Omitting this results in higher accuracy on remote
@@ -162,6 +168,21 @@ def printBestAgeCutOff():
     print("Best age cut off:", bestAgeCutOff)
     print("Best accuracy:", maxAccuracy)
 
+def printBestTwoAgeCutOffs():
+    global ageCutOffOne, ageCutOffTwo
+
+    maxAccuracy = 0
+    bestAgeCutOffs = (-1, -1)
+
+    for ageCutOffOne in range(20, 30):
+        for ageCutOffTwo in range(45, 75):
+            accuracy = trainAndTest()
+            if accuracy > maxAccuracy:
+                maxAccuracy, bestAgeCutOffs = accuracy, (ageCutOffOne, ageCutOffTwo)
+
+    print("Best age cut offs:", bestAgeCutOffs)
+    print("Best accuracy:", maxAccuracy)
+
 def printBestExclusionSet():
     global excludeSet
 
@@ -219,10 +240,16 @@ excludeSet |= mustExcludeSet
 ageCutOff = 49  # Best locally was 47
 # Best remote was 49 (0.8746)
 
+ageCutOffOne = 27
+ageCutOffTwo = 51
+# Best pair locally was (27, 51)
+# But remotely, this pair was worse than a single age cutoff of 49
+
 attribWeights = defaultdict(lambda: 1)  # Attribute weights, indexed by attribute name
 attribWeights[""]
 
 # printBestAgeCutOff()
+# printBestTwoAgeCutOffs()
 # printBestExclusionSet()
 
 accuracy = trainAndTest()
