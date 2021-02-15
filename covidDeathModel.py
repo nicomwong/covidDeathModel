@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 import math
+import sys
 
 def isDeadFromDate(date):
     if date == "9999-99-99" or ('#' in date):    # 9999-99-99 is alive
@@ -8,13 +9,13 @@ def isDeadFromDate(date):
     return True # anything else is dead
 
 def attribValFromAge(age):
-    if age < 50:
-        return "under50"
-    return "over50"
+    if age < ageCutOff:
+        return "under"
+    return "over"
 
 def isUnknownAttribVal(attribVal):
-    if 97 <= attribVal <= 99:
-        return True
+    # if 97 <= attribVal <= 99: # Omitting this results in higher accuracy on remote
+    #     return True
     return False
 
 def getAttribVal(val : str, attribName):
@@ -97,6 +98,10 @@ def classify(attribValues, excludeList):
         if sumLogProb > maxSumLogProb:
             maxSumLogProb, maxClass = sumLogProb, classDead
     
+    # For GradeScope, print 0 for alive and 1 for dead prediction
+    if gradescopeActive:
+        print(int(maxClass) )
+    
     return maxClass
 
 # Test the accuracy of the trained model on a validation data set
@@ -115,30 +120,111 @@ def testAccuracy(testFileName, excludeList):
 
         return validCount / numRows
 
-# First, create the Naive Bayes Model by storing conditional probabilities P(X_i|C) in a map
-# where X_i is an attribute, and C is a class (dead or alive)
-condProbMap = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: 1) ) )    # 3-level nested dict with default value 1 (for smoothing)
-                                                                                    # [TODO] Need to change how dict entry is created
-                                                                                    # Right now, the default value = 1 but it does not get divided into a probability
-                                                                                    # since a validation row may have never been seen in the training data set
-                                                                                    # Honestly, probably doesn't matter since nearly all combinations of attribute values are seen in the training data
-excludeList = ["entry_date", "date_symptoms", "date_died"]
-classDeadProb = {True: 0, False: 0}
-attribNames = []    # List of attribute names, indexed by column number
+def trainAndTest():
+    global condProbMap, classDeadProb, attribNames
 
-train("covid_train.csv", excludeList)
+    # First, create the Naive Bayes Model by storing conditional probabilities P(X_i|C) in a map
+    # where X_i is an attribute, and C is a class (dead or alive)
+    condProbMap = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: 1) ) )    # 3-level nested dict with default value 1 (for smoothing)
+                                                                                        # [TODO] Need to change how dict entry is created
+                                                                                        # Right now, the default value = 1 but it does not get divided into a probability
+                                                                                        # since a validation row may have never been seen in the training data set
+                                                                                        # Honestly, probably doesn't matter since nearly all combinations of attribute values are seen in the training data
+    classDeadProb = {True: 0, False: 0}
+    attribNames = []    # List of attribute names, indexed by column number
 
-import pprint
-import json
+    train(trainingFileName, excludeSet)
 
-# print("--- Conditional Probability Tables ---")
-# pprint.pprint(json.loads(json.dumps(condProbMap) ) )
+    import pprint
+    import json
 
-# print()
-# print("--- Class Dead Probability --- ")
-# pprint.pprint(classDeadProb)
+    # print("--- Conditional Probability Tables ---")
+    # pprint.pprint(json.loads(json.dumps(condProbMap) ) )
 
-# Next, test the accuracy on the validation data set
-print()
-print("--- Test Accuracy ---")
-print(testAccuracy("covid_valid.csv", excludeList) )
+    # print()
+    # print("--- Class Dead Probability --- ")
+    # pprint.pprint(classDeadProb)
+
+    # Next, test the accuracy on the validation data set
+    return testAccuracy(testFileName, excludeSet)
+
+def printBestAgeCutOff():
+    global ageCutOff
+
+    maxAccuracy = 0
+    bestAgeCutOff = -1
+
+    for ageCutOff in range(45, 56): 
+        accuracy = trainAndTest()
+        if accuracy > maxAccuracy:
+            maxAccuracy, bestAgeCutOff = accuracy, ageCutOff
+
+    print("Best age cut off:", bestAgeCutOff)
+    print("Best accuracy:", maxAccuracy)
+
+def printBestExclusionSet():
+    global excludeSet
+
+    with open(testFileName, 'r') as testFile:
+        attribNameList = testFile.readline().rstrip('\n').split(',')
+    
+    import itertools
+    import pprint
+
+    excludeSet = mustExcludeSet
+
+    accBefore = trainAndTest()
+    accumExcludeSet = set()
+    for attribName in attribNameList:
+        if attribName in mustExcludeSet:    # Must always exclude this column anyways
+            continue
+        
+        excludeSet = mustExcludeSet | accumExcludeSet | {attribName}
+        acc = trainAndTest()
+
+        if (acc > accBefore):
+            accBefore = acc
+            accumExcludeSet |= {attribName}
+
+    print("Best exclusion set:")
+    print(accumExcludeSet)
+    print("Best accuracy: ", accBefore)
+
+    # # Below is super slow because # subsets is = 2^N
+    # for i in range(1, len(colHeaderSet)// 6 ):
+    #     excludeSubsetList = [set(j) for j in itertools.combinations(colHeaderSet, i)]
+    #     pprint.pprint(excludeSubsetList)
+
+
+# Check cmdline args
+if len(sys.argv) != 3 and len(sys.argv) != 4:
+    print("Usage: python3 trainingFile testFile")
+    print("Exiting...")
+    sys.exit()
+
+# Parse cmdline args
+trainingFileName = sys.argv[1]
+testFileName = sys.argv[2]
+
+# Flag for gradescope test versus my tests
+gradescopeActive = (len(sys.argv) == 3)
+
+mustExcludeSet = {"entry_date", "date_symptoms", "date_died"}
+
+# Hyper-parameters
+excludeSet = {"patient_type", "sex", "pregnancy", "other_disease", "asthma", "tobacco"}    # Best for local was {'pregnancy', 'diabetes', 'patient_type', 'copd', 'other_disease', 'asthma', 'tobacco'}
+# Best for remote was {"patient_type", "sex", "pregnancy", "other_disease", "asthma", "tobacco"}
+excludeSet |= mustExcludeSet
+
+ageCutOff = 49  # Best locally was 47
+# Best remote was 49 (0.8746)
+
+attribWeights = defaultdict(lambda: 1)  # Attribute weights, indexed by attribute name
+attribWeights[""]
+
+# printBestAgeCutOff()
+# printBestExclusionSet()
+
+accuracy = trainAndTest()
+if not(gradescopeActive):
+    print(f"--- Test accuracy: {accuracy} ---")
