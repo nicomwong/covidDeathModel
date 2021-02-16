@@ -2,6 +2,7 @@ from collections import defaultdict
 
 import math
 import sys
+import time
 
 def isDeadFromDate(date):
     if date == "9999-99-99" or ('#' in date):    # 9999-99-99 is alive
@@ -20,7 +21,7 @@ def attribValFromAge(age):
     #     return 3
 
 def isUnknownAttribVal(attribVal):
-    # if 97 <= attribVal <= 99: # Omitting this results in higher accuracy on remote
+    # if 97 <= attribVal <= 99 or attribVal == 3: # Omitting this results in higher accuracy on remote
     #     return True
     return False
 
@@ -80,9 +81,9 @@ def train(trainFileName, excludeList):
             classDeadProb[classDead] /= sumClassCounts
 
 # Classify a row of attributes
-def classify(attribValues, excludeList):
+def classify(attribValues, excludeList, printFlag):
     # Calculate argmax( log[P(X|c)P(c)] for each class c) where X is the set of attribute values
-    # Note: log[P(X|c)P(c)] = sum( log[P(X=x|c)] for all X ) + log[P(c)]
+    # Note: log[P(X|c)P(c)] = sum( log[P(X=x|c)] for all X=x ) + log[P(c)]
     (maxSumLogProb, maxClass) = (-2 ** 32, False)
     for classDead in classDeadProb:
         sumLogProb = 0
@@ -94,10 +95,12 @@ def classify(attribValues, excludeList):
                 continue
 
             attribVal = getAttribVal(cellVal, attribName)
+            # weightCoeff = 2 - attribWeights[attribName]
+            weightCoeff = -1*math.log(attribWeights[attribName]) + 1
             # for debugging; only one entry gets messed up with value = 1: pneumonia, True, unknown
             # if attribVal not in condProbMap[attribName][classDead]:
             #     print("Found at", attribName, classDead, attribVal)
-            sumLogProb += math.log(condProbMap[attribName][classDead][attribVal] )  # log[P(X=x|c)]
+            sumLogProb += weightCoeff * math.log(condProbMap[attribName][classDead][attribVal] )  # log[P(X=x|c)]
             
         sumLogProb += math.log(classDeadProb[classDead] )   # log[P(c)]
 
@@ -105,13 +108,13 @@ def classify(attribValues, excludeList):
             maxSumLogProb, maxClass = sumLogProb, classDead
     
     # For GradeScope, print 0 for alive and 1 for dead prediction
-    if gradescopeActive:
+    if gradescopeActive and printFlag:
         print(int(maxClass) )
     
     return maxClass
 
 # Test the accuracy of the trained model on a validation data set
-def testAccuracy(testFileName, excludeList):
+def testAccuracy(testFileName, excludeList, printFlag):
     with open(testFileName, 'r') as testFile:
         testFile.readline() # Skip first line (headers)
         numRows, validCount = 0, 0
@@ -119,14 +122,14 @@ def testAccuracy(testFileName, excludeList):
             attribValues = row.rstrip('\n').split(',')  # Attribute values for this row
             
             actualClass = isDeadFromDate(attribValues[4] )
-            if classify(attribValues, excludeList) == actualClass:   # Correct classification
+            if classify(attribValues, excludeList, printFlag) == actualClass:   # Correct classification
                 validCount += 1
 
             numRows += 1
 
         return validCount / numRows
 
-def trainAndTest():
+def trainAndTest(printFlag):
     global condProbMap, classDeadProb, attribNames
 
     # First, create the Naive Bayes Model by storing conditional probabilities P(X_i|C) in a map
@@ -144,15 +147,15 @@ def trainAndTest():
     import pprint
     import json
 
-    # print("--- Conditional Probability Tables ---")
+    # print("--- Conditional Probability Tables ---") # for debugging
     # pprint.pprint(json.loads(json.dumps(condProbMap) ) )
 
-    # print()
-    # print("--- Class Dead Probability --- ")
+    # print()   # for debugging
+    # print("--- Class Dead Probability --- ")  
     # pprint.pprint(classDeadProb)
 
     # Next, test the accuracy on the validation data set
-    return testAccuracy(testFileName, excludeSet)
+    return testAccuracy(testFileName, excludeSet, printFlag)
 
 def printBestAgeCutOff():
     global ageCutOff
@@ -161,7 +164,7 @@ def printBestAgeCutOff():
     bestAgeCutOff = -1
 
     for ageCutOff in range(45, 56): 
-        accuracy = trainAndTest()
+        accuracy = trainAndTest(False)
         if accuracy > maxAccuracy:
             maxAccuracy, bestAgeCutOff = accuracy, ageCutOff
 
@@ -176,7 +179,7 @@ def printBestTwoAgeCutOffs():
 
     for ageCutOffOne in range(20, 30):
         for ageCutOffTwo in range(45, 75):
-            accuracy = trainAndTest()
+            accuracy = trainAndTest(False)
             if accuracy > maxAccuracy:
                 maxAccuracy, bestAgeCutOffs = accuracy, (ageCutOffOne, ageCutOffTwo)
 
@@ -194,14 +197,14 @@ def printBestExclusionSet():
 
     excludeSet = mustExcludeSet
 
-    accBefore = trainAndTest()
+    accBefore = trainAndTest(False)
     accumExcludeSet = set()
     for attribName in attribNameList:
         if attribName in mustExcludeSet:    # Must always exclude this column anyways
             continue
         
         excludeSet = mustExcludeSet | accumExcludeSet | {attribName}
-        acc = trainAndTest()
+        acc = trainAndTest(False)
 
         if (acc > accBefore):
             accBefore = acc
@@ -215,6 +218,37 @@ def printBestExclusionSet():
     # for i in range(1, len(colHeaderSet)// 6 ):
     #     excludeSubsetList = [set(j) for j in itertools.combinations(colHeaderSet, i)]
     #     pprint.pprint(excludeSubsetList)
+
+def printBestWeights(attribName):
+    global attribWeights
+
+    import numpy as np
+    import pprint
+
+    trainAndTest(False) # To initialize global vars
+
+    # bestWeight = 0
+    # bestAcc = 0
+    q = []
+
+    for attribWeight in np.linspace(0.5, 1.5, 21):    # 0.05 interval, from 0.5 to 1.5
+        tmp = attribWeights[attribName]
+
+        attribWeights[attribName] = attribWeight
+        acc = testAccuracy(testFileName, excludeSet, False)
+
+        attribWeights[attribName] = tmp
+        # if acc > bestAcc:
+        #     bestAcc, bestWeight = acc, attribWeight
+        q.append( (acc, attribWeight) )
+
+    q.sort(reverse=True)
+
+    if not(gradescopeActive):
+        print(f"Top 5 weights for '{attribName}' are:")
+        pprint.pprint(q[0:5] )
+
+    attribWeights[attribName] = q[0][1]    # set weight to best weight
 
 
 # Check cmdline args
@@ -246,12 +280,35 @@ ageCutOffTwo = 51
 # But remotely, this pair was worse than a single age cutoff of 49
 
 attribWeights = defaultdict(lambda: 1)  # Attribute weights, indexed by attribute name
-attribWeights[""]
+                                        # Must be between 0 and 2
+# attribWeights["pneumonia"] = 1.2
+# attribWeights["obesity"] = 0.9
+# # attribWeights["icu"] = 1.1
+# # attribWeights["cardiovascular"] = 0.7
+# attribWeights["inmsupr"] = 0.5
+# # attribWeights["hypertension"] = 0.9
+# # attribWeights["renal_chronic"] = 0.5
+# attribWeights["diabetes"] = 1.2
+# attribWeights["copd"] = 0.5
 
+with open(testFileName, 'r') as testFile:
+    attribNameList = testFile.readline().rstrip('\n').split(',')
+
+# Start time
+startTime = time.time()
+
+testSet = set(attribNameList) - excludeSet
+
+# for attribName in testSet:    # This is hacking to super-fit the weights to the validation set
+#     printBestWeights(attribName)
 # printBestAgeCutOff()
 # printBestTwoAgeCutOffs()
 # printBestExclusionSet()
 
-accuracy = trainAndTest()
+accuracy = trainAndTest(True)
 if not(gradescopeActive):
     print(f"--- Test accuracy: {accuracy} ---")
+
+if not(gradescopeActive):
+    # Print time elapsed
+    print(f"--- Time elapsed: {time.time() - startTime} seconds ---")
