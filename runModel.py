@@ -22,7 +22,8 @@ def main():
     startTime = time.time()
 
     # Run the training and testing
-    model = CovidDeathModel(trainingFileName, gradescopeActive)   # Train
+    model = CovidDeathModel(trainingFileName, gradescopeActive)
+    model.train()   # Train
     accuracy = model.testAccuracy(testFileName) # Test
 
     # Print accuracy and time elapsed

@@ -30,9 +30,6 @@ class CovidDeathModel:
 
         # Testing flags
         self.gradescopeActive = gradescopeActive
-    
-        # Create the model with the training file
-        self.train()
 
     # Train the Naive Bayes model
     def train(self):
