@@ -154,7 +154,10 @@ class CovidDeathModel:
 
     def getTopTenAttributes(self):
 
-        condProbMap = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: 1) ) )
+        # Stores N(C|X) where C is the class and X is the attribute
+        # Maps attribName => attribVal => class
+        jointCountMap = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: 1) ) )
+        classDeadCount = {True: 0, False: 0}
 
         with open(self.trainFileName, 'r') as trainFile:
 
@@ -167,21 +170,54 @@ class CovidDeathModel:
                 for colNum, cellVal in enumerate(colValues):
                     attribName = self.attribNames[colNum]
                     
-                    # Skip columns in the exclude list
-                    if attribName in self.excludeSet:
+                    # Skip columns in the ignored list
+                    if attribName in {"entry_date", "date_symptoms", "date_died"}:
                         continue
 
                     attribVal = self.getAttribVal(cellVal, attribName)
 
-                    condProbMap[attribName][classDead][attribVal] += 1   # Increment count N(X=x,C)
+                    jointCountMap[attribName][attribVal][classDead] += 1   # Increment count N(X=x,C)
                 
                 # Increment count N(C)
-                self.classDeadProb[classDead] += 1
+                classDeadCount[classDead] += 1
 
         # [TODO]      
         # Get total of N(X=x) for each x
 
+        # Find the total entropy H(Y)
+        totalEntropy = self.calcEntropy(classDeadCount[True], classDeadCount[False])
+
+        condEntropyList = []    # List of (attribName, H(Y|X) ) tuples where X is the attribute
+
+        # For each attribute, find the conditional entropy H(Y|X) and store the gain H(Y) - H(Y|X) in a list
+        for attribName in jointCountMap:
+
+            condEntropy = 0 # Stores H(Y|X)
+            attribValCount = {} # Stores N(X=x) for each x; key is attribVal
+
+            # Calculate N(X=x) for each x
+            for attribVal in jointCountMap[attribName]:
+                attribValCount[attribVal] = sum( jointCountMap[attribName][attribVal].values() )
+                
+            # Calculate N(X)
+            attribTotalCount = sum(attribValCount.values() )
+
+            # Calculate H(Y|X)
+            for attribVal in jointCountMap[attribName]:
+                attribValClassCounts = jointCountMap[attribName][attribVal]    # Stores class C => N(X = x, C)
+
+                condEntropy += attribValCount[attribVal] / attribTotalCount * self.calcEntropy( attribValClassCounts[True], attribValClassCounts[False] )
+
+            # Calculate Gain H(Y) - H(Y|X)
+            gain = totalEntropy - condEntropy
+
+            # Add it to the list
+            condEntropyList.append( (attribName, gain) )
+
+        return sorted(condEntropyList, key=lambda x: x[1], reverse=True)[0:10]
+
+
     # Calculates I(x,y) = -x/(x+y)*log(x/(x+y)) - y/(x+y)*log(y/(x+y))
-    def calcEntropy(x, y):
+    def calcEntropy(self, x, y):
         total = x + y
         return -1 * (x / total * math.log(x / total, 2) + y / total * math.log(y / total, 2) )
