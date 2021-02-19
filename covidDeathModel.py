@@ -18,7 +18,8 @@ class CovidDeathModel:
                                                                                             # since a validation row may have never been seen in the training data set
                                                                                             # Honestly, probably doesn't matter since nearly all combinations of attribute values are seen in the training data
         self.classDeadProb = {True: 0, False: 0}    # Stores P(C) where C is a class (T: dead, F: alive)
-        
+        self.trainFileName = trainFileName
+
         # Get the list of attribute names, indexed by column number
         with open(trainFileName, 'r') as trainFile:
             self.attribNames = trainFile.readline().rstrip('\n').split(',')
@@ -31,12 +32,12 @@ class CovidDeathModel:
         self.gradescopeActive = gradescopeActive
     
         # Create the model with the training file
-        self.train(trainFileName)
+        self.train()
 
     # Train the Naive Bayes model
-    def train(self, trainFileName):
+    def train(self):
 
-        with open(trainFileName, 'r') as trainFile:
+        with open(self.trainFileName, 'r') as trainFile:
 
             trainFile.readline()    # Skip first line (headers)
 
@@ -154,9 +155,11 @@ class CovidDeathModel:
             return True
         return False
 
-    def getTopTenAttributes(self, trainFileName):
+    def getTopTenAttributes(self):
 
-        with open(trainFileName, 'r') as trainFile:
+        condProbMap = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: 1) ) )
+
+        with open(self.trainFileName, 'r') as trainFile:
 
             trainFile.readline()    # Skip first line (headers)
 
@@ -173,7 +176,7 @@ class CovidDeathModel:
 
                     attribVal = self.getAttribVal(cellVal, attribName)
 
-                    self.condProbMap[attribName][classDead][attribVal] += 1   # Increment count N(X=x,C)
+                    condProbMap[attribName][classDead][attribVal] += 1   # Increment count N(X=x,C)
                 
                 # Increment count N(C)
                 self.classDeadProb[classDead] += 1
