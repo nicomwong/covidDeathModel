@@ -150,34 +150,38 @@ class CovidDeathModel:
         return "over"
 
     def isUnknownAttribVal(self, attribVal):
-        # if 97 <= attribVal <= 99 or attribVal == 3: # Omitting this results in higher accuracy on remote
-        #     return True
+        if 97 <= attribVal <= 99 or attribVal == 3: # Omitting this results in higher accuracy on remote
+            return True
         return False
 
-def main():
-    # Check cmdline args
-    if len(sys.argv) != 3 and len(sys.argv) != 4:
-        print(f"Usage: python3 {sys.argv[0]} trainingFile testFile")
-        print("Exiting...")
-        sys.exit()
+    def getTopTenAttributes(self, trainFileName):
 
-    # Parse cmdline args
-    trainingFileName = sys.argv[1]
-    testFileName = sys.argv[2]
+        with open(trainFileName, 'r') as trainFile:
 
-    # Flag for gradescope test versus my tests
-    gradescopeActive = (len(sys.argv) == 3)
+            trainFile.readline()    # Skip first line (headers)
 
-    # Start time
-    startTime = time.time()
+            for row in trainFile:
+                colValues = row.rstrip('\n').split(',')  # Attribute values for this row
+                classDead = self.isDeadFromDate(colValues[4])
 
-    # Run the training and testing
-    model = CovidDeathModel(trainingFileName, gradescopeActive)   # Train
-    accuracy = model.testAccuracy(testFileName) # Test
+                for colNum, cellVal in enumerate(colValues):
+                    attribName = self.attribNames[colNum]
+                    
+                    # Skip columns in the exclude list
+                    if attribName in self.excludeSet:
+                        continue
 
-    # Print accuracy and time elapsed
-    if not(gradescopeActive):
-        print(f"--- Test accuracy: {accuracy} ---")
-        print(f"--- Time elapsed: {time.time() - startTime} seconds ---")
+                    attribVal = self.getAttribVal(cellVal, attribName)
 
-main()
+                    self.condProbMap[attribName][classDead][attribVal] += 1   # Increment count N(X=x,C)
+                
+                # Increment count N(C)
+                self.classDeadProb[classDead] += 1
+
+        # [TODO]      
+        # Get total of N(X=x) for each x
+
+    # Calculates I(x,y) = -x/(x+y)*log(x/(x+y)) - y/(x+y)*log(y/(x+y))
+    def calcEntropy(x, y):
+        total = x + y
+        return -1 * (x / total * math.log(x / total, 2) + y / total * math.log(y / total, 2) )
